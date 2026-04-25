@@ -1,0 +1,29 @@
+{
+  "version": "@VERSION@",
+  "description": "Real-time Wi-Fi terminal monitor with Growl notifications",
+  "homepage": "https://github.com/cumulus13/go-wifimon",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/cumulus13/go-wifimon/releases/download/v@VERSION@/wifimon_@VERSION@_windows_amd64.zip",
+      "hash": "@WINDOWS_AMD64_SHA256@"
+    }
+  },
+  "bin": "wifimon.exe",
+  "shortcuts": [
+    [
+      "wifimon.exe",
+      "WiFiMon"
+    ]
+  ],
+  "checkver": {
+    "github": "https://github.com/cumulus13/go-wifimon"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/cumulus13/go-wifimon/releases/download/v$version/wifimon_$version_windows_amd64.zip"
+      }
+    }
+  }
+}

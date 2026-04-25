@@ -1,0 +1,6 @@
+# PT backup directory
+.pt/
+
+# Added entries (2 items)
+*sublime*
+*.exe

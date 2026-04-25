@@ -1,0 +1,76 @@
+project_name: wifimon
+
+before:
+  hooks:
+    - go test ./...
+
+builds:
+  - id: wifimon
+    main: ./cmd/wifimon
+    binary: wifimon
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos:
+      - windows
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    formats:
+      - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+      - assets/*
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  use: github
+
+release:
+  draft: false
+  prerelease: auto
+
+brews:
+  - name: wifimon
+    homepage: "https://github.com/cumulus13/go-wifimon"
+    description: "Real-time Wi-Fi terminal monitor with Growl notifications"
+    repository:
+      owner: cumulus13
+      name: homebrew-tap
+      branch: main
+    directory: Formula
+    commit_author:
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    install: |
+      bin.install "wifimon"
+      pkgshare.install "assets"
+    test: |
+      system "#{bin}/wifimon", "--help"
+
+scoops:
+  - name: wifimon
+    homepage: "https://github.com/cumulus13/go-wifimon"
+    description: "Real-time Wi-Fi terminal monitor with Growl notifications"
+    repository:
+      owner: cumulus13
+      name: scoop-bucket
+      branch: main
+    commit_author:
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    license: MIT
