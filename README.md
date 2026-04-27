@@ -15,6 +15,8 @@ It is built for Windows first, keeps the UI in English, and is structured so Lin
 - Growl notifications for connect, disconnect, and network switch events via [`github.com/cumulus13/go-gntp`](https://github.com/cumulus13/go-gntp)
 - Responsive layout that follows terminal width
 
+[![Screenshot](https://raw.githubusercontent.com/cumulus13/go-wifimon/master/screenshot.png)](https://raw.githubusercontent.com/cumulus13/go-wifimon/master/screenshot.png)
+
 ## Shortcuts
 
 - `q`: quit
