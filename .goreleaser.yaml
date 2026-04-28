@@ -1,3 +1,5 @@
+version: 2
+
 project_name: wifimon
 
 before:
@@ -25,8 +27,7 @@ builds:
 
 archives:
   - id: default
-    formats:
-      - zip
+    formats: [zip]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
