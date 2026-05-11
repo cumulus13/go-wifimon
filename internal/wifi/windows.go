@@ -231,6 +231,7 @@ func parseWindowsIPConfig(text string) map[string]ipBlock {
 func parseWindowsPing(text string, now time.Time) PingResult {
 	result := PingResult{
 		CheckedAt: now,
+		Sent:      1,
 	}
 	if match := rxLatency.FindStringSubmatch(text); len(match) == 2 {
 		if latency, err := strconv.Atoi(match[1]); err == nil {
@@ -242,17 +243,12 @@ func parseWindowsPing(text string, now time.Time) PingResult {
 		result.LatencyMS = 0
 		result.Reachable = true
 	}
-	result.Sent = 1
-	result.Received = 0
 	if result.Reachable {
 		result.Received = 1
 	}
 	if match := rxLoss.FindStringSubmatch(text); len(match) == 2 {
 		if loss, err := strconv.Atoi(match[1]); err == nil {
 			result.PacketLoss = float64(loss)
-			if loss == 0 && result.Reachable {
-				result.Received = 1
-			}
 		}
 	} else if !result.Reachable {
 		result.PacketLoss = 100
@@ -275,6 +271,8 @@ func splitBlocks(text string) []string {
 	return blocks
 }
 
+// parseColonBlock parses "Key   : Value" lines, using SplitN so values
+// containing colons (IPv6 addresses, GUIDs, etc.) are preserved intact.
 func parseColonBlock(block string) map[string]string {
 	fields := map[string]string{}
 	for _, line := range strings.Split(block, "\n") {
@@ -284,7 +282,14 @@ func parseColonBlock(block string) map[string]string {
 		}
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
-		fields[key] = value
+		if key == "" {
+			continue
+		}
+		// Only store the first occurrence; netsh repeats some keys for
+		// secondary values (e.g. multiple gateways) which we don't need.
+		if _, exists := fields[key]; !exists {
+			fields[key] = value
+		}
 	}
 	return fields
 }
@@ -310,7 +315,7 @@ func normalizeNewlines(value string) string {
 }
 
 func parsePercent(value string) int {
-	value = strings.TrimSpace(strings.TrimSuffix(value, "%"))
+	value = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(value), "%"))
 	n, err := strconv.Atoi(value)
 	if err != nil {
 		return 0

@@ -57,9 +57,28 @@ func (m Model) View() string {
 	history := m.historyFor(key)
 
 	adapterTabs := renderTabs(m.Info.Adapters, m.Selected, width-8)
-	signalGraph := sparkline(history.Signal, "▁▂▃▄▅▆▇█")
-	latencyGraph := sparkline(history.Latency, "▁▂▃▄▅▆▇█")
-	lossGraph := sparklineFloat(history.Loss, "▁▂▃▄▅▆▇█")
+
+	// Each card is roughly (contentWidth/2)-2 wide (or width-8 in narrow mode).
+	// Inner usable width = cardWidth - 2 (border) - 2 (padding).
+	// statusLine label prefix is 15 chars ("Signal Graph: "), leaving the rest for the graph.
+	const labelPrefix = 15 // "Signal Graph: " width
+	const cardChrome = 4   // border (2) + padding (2) each side
+	contentWidth := width - 4
+	if contentWidth < 40 {
+		contentWidth = width
+	}
+	cardInnerWidth := maxInt(28, (contentWidth/2)-2) - cardChrome
+	if width < 92 {
+		cardInnerWidth = maxInt(24, width-8) - cardChrome
+	}
+	graphWidth := cardInnerWidth - labelPrefix
+	if graphWidth < 4 {
+		graphWidth = 4
+	}
+
+	signalGraph := sparkline(history.Signal, "▁▂▃▄▅▆▇█", graphWidth)
+	latencyGraph := sparkline(history.Latency, "▁▂▃▄▅▆▇█", graphWidth)
+	lossGraph := sparklineFloat(history.Loss, "▁▂▃▄▅▆▇█", graphWidth)
 
 	mainCard := strings.Join([]string{
 		statusLine("Adapter", fmt.Sprintf("%s (%d/%d)", selected.Name, m.Selected+1, len(m.Info.Adapters))),
@@ -100,10 +119,6 @@ func (m Model) View() string {
 
 	footer := dimStyle.Render("Shortcuts: q quit • r refresh • ←/→ switch adapter")
 
-	contentWidth := width - 4
-	if contentWidth < 40 {
-		contentWidth = width
-	}
 	content := lipgloss.JoinHorizontal(lipgloss.Top,
 		cardStyle.Width(maxInt(28, (contentWidth/2)-2)).Render(mainCard),
 		cardStyle.Width(maxInt(28, (contentWidth/2)-2)).Render(networkCard),
@@ -166,9 +181,16 @@ func stateEmoji(state string) string {
 	}
 }
 
-func sparkline(values []int, charset string) string {
+// sparkline renders a bar graph using block characters.
+// maxWidth caps the number of bars shown (keeping the most recent samples).
+// Pass maxWidth <= 0 to show all samples.
+func sparkline(values []int, charset string, maxWidth int) string {
 	if len(values) == 0 {
-		return dimStyle.Render("no samples yet")
+		return dimStyle.Render("no data")
+	}
+	// Trim to the most-recent maxWidth samples so the graph always fits.
+	if maxWidth > 0 && len(values) > maxWidth {
+		values = values[len(values)-maxWidth:]
 	}
 	maxVal := 1
 	for _, value := range values {
@@ -191,15 +213,15 @@ func sparkline(values []int, charset string) string {
 	return b.String()
 }
 
-func sparklineFloat(values []float64, charset string) string {
+func sparklineFloat(values []float64, charset string, maxWidth int) string {
 	if len(values) == 0 {
-		return dimStyle.Render("no samples yet")
+		return dimStyle.Render("no data")
 	}
 	ints := make([]int, 0, len(values))
 	for _, value := range values {
 		ints = append(ints, int(math.Round(value)))
 	}
-	return sparkline(ints, charset)
+	return sparkline(ints, charset, maxWidth)
 }
 
 func valueOrDash(value string) string {

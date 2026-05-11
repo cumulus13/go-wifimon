@@ -58,10 +58,12 @@ func Get() Info {
 		return getWindows()
 	case "linux":
 		return getLinux()
+	case "darwin":
+		return getDarwin()
 	default:
 		return Info{
 			Timestamp: time.Now(),
-			Error:     "unsupported operating system",
+			Error:     fmt.Sprintf("unsupported operating system: %s", runtime.GOOS),
 		}
 	}
 }
@@ -72,9 +74,11 @@ func PingGateway(gateway string) PingResult {
 		return pingGatewayWindows(gateway)
 	case "linux":
 		return pingGatewayLinux(gateway)
+	case "darwin":
+		return pingGatewayDarwin(gateway)
 	default:
 		return PingResult{
-			Error:     "unsupported operating system",
+			Error:     fmt.Sprintf("unsupported operating system: %s", runtime.GOOS),
 			CheckedAt: time.Now(),
 		}
 	}
@@ -84,11 +88,9 @@ func (i Info) ActiveAdapter() (Adapter, bool) {
 	if len(i.Adapters) == 0 {
 		return Adapter{}, false
 	}
-
 	if i.ActiveIndex < 0 || i.ActiveIndex >= len(i.Adapters) {
 		return i.Adapters[0], true
 	}
-
 	return i.Adapters[i.ActiveIndex], true
 }
 
