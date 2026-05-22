@@ -6,6 +6,10 @@ on:
       - "v*"
   workflow_dispatch:
 
+# Required so GoReleaser can create the GitHub Release and upload assets
+# to THIS repository (go-wifimon). The homebrew-tap and scoop-bucket pushes
+# use GH_PAT instead (set below), because GITHUB_TOKEN can only write to
+# the repo the workflow is running in.
 permissions:
   contents: write
 
@@ -17,7 +21,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0   # GoReleaser needs full history for changelog
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -34,4 +38,12 @@ jobs:
           version: "~> v2"
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_GITHUB }}
+          # Auto-provided by GitHub Actions — creates the Release and uploads
+          # binaries to THIS repo. No secret to create.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # Personal Access Token used ONLY to push to the separate
+          # homebrew-tap and scoop-bucket repos.
+          # Create at: github.com/settings/tokens → "repo" scope
+          # Store at:  go-wifimon repo → Settings → Secrets → Actions → GH_PAT
+          GH_PAT: ${{ secrets.GH_PAT }}

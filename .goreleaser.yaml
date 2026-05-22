@@ -1,19 +1,21 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
 
 project_name: wifimon
 
 before:
   hooks:
-    - go test ./...
+    - go mod tidy
+    - go generate ./...
 
 builds:
   - id: wifimon
     main: ./cmd/wifimon
     binary: wifimon
+    ldflags:
+      - -s -w -X main.version={{.Version}}
     env:
       - CGO_ENABLED=0
-    ldflags:
-      - -s -w -X main.version={{ .Version }}
     goos:
       - windows
       - linux
@@ -21,57 +23,101 @@ builds:
     goarch:
       - amd64
       - arm64
+    # 386 only for windows
     ignore:
-      - goos: windows
-        goarch: arm64
+      - goos: darwin
+        goarch: "386"
+      - goos: linux
+        goarch: "386"
 
 archives:
-  - id: default
-    formats: [zip]
+  - id: wifimon
+    builds:
+      - wifimon
+    # zip for windows, tar.gz for everything else
+    format_overrides:
+      - goos: windows
+        format: zip
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
+      - LICENSE
       - README.md
-      - LICENSE*
-      - assets/*
+      - assets/**
 
 checksum:
   name_template: "checksums.txt"
 
 changelog:
   sort: asc
-  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
 
 release:
+  github:
+    owner: cumulus13
+    name: go-wifimon
   draft: false
   prerelease: auto
+  name_template: "v{{.Version}}"
 
+# ── Homebrew tap ─────────────────────────────────────────────────────────────
+# GoReleaser will push Formula/wifimon.rb to cumulus13/homebrew-tap
+# Users install with:
+#   brew tap cumulus13/tap
+#   brew install wifimon
 brews:
   - name: wifimon
-    homepage: "https://github.com/cumulus13/go-wifimon"
-    description: "Real-time Wi-Fi terminal monitor with Growl notifications"
+    # The tap repository — must be named homebrew-<something>
     repository:
       owner: cumulus13
       name: homebrew-tap
-      branch: main
+      # This token must have "repo" scope on cumulus13/homebrew-tap
+      token: "{{ .Env.GH_PAT }}"
+    # Where inside the tap repo to put the formula
     directory: Formula
-    commit_author:
-      name: github-actions[bot]
-      email: 41898282+github-actions[bot]@users.noreply.github.com
-    install: |
-      bin.install "wifimon"
-      pkgshare.install "assets"
-    test: |
-      system "#{bin}/wifimon", "--help"
-
-scoops:
-  - name: wifimon
     homepage: "https://github.com/cumulus13/go-wifimon"
     description: "Real-time Wi-Fi terminal monitor with Growl notifications"
+    license: "MIT"
+    # Only package the linux + darwin builds in the formula
+    # (Windows users use Scoop)
+    ids:
+      - wifimon
+    goarm: "6"
+    # Shell completion / post-install steps (optional)
+    install: |
+      bin.install "wifimon"
+      (pkgshare/"assets").install Dir["assets/*"]
+    test: |
+      system "#{bin}/wifimon", "--version"
+    # Commit message GoReleaser uses when pushing to the tap
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "chore: update wifimon to {{ .Tag }}"
+    skip_upload: false
+
+# ── Scoop bucket ──────────────────────────────────────────────────────────────
+# GoReleaser will push bucket/wifimon.json to cumulus13/scoop-bucket
+# Users install with:
+#   scoop bucket add cumulus13 https://github.com/cumulus13/scoop-bucket
+#   scoop install wifimon
+scoops:
+  - name: wifimon
     repository:
       owner: cumulus13
       name: scoop-bucket
-      branch: main
-    commit_author:
-      name: github-actions[bot]
-      email: 41898282+github-actions[bot]@users.noreply.github.com
+      token: "{{ .Env.GH_PAT }}"
+    directory: bucket
+    homepage: "https://github.com/cumulus13/go-wifimon"
+    description: "Real-time Wi-Fi terminal monitor with Growl notifications"
     license: MIT
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "chore: update wifimon to {{ .Tag }}"
+    skip_upload: false

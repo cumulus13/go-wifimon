@@ -1,31 +1,38 @@
+# This file is managed by GoReleaser.
+# Manual edits will be overwritten on the next release.
+# Source: https://github.com/cumulus13/go-wifimon
 class Wifimon < Formula
   desc "Real-time Wi-Fi terminal monitor with Growl notifications"
   homepage "https://github.com/cumulus13/go-wifimon"
-  version "@VERSION@"
-  if OS.mac?
+  version "0.0.0"
+  license "MIT"
+
+  on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/cumulus13/go-wifimon/releases/download/v#{version}/wifimon_#{version}_darwin_arm64.zip"
-      sha256 "@DARWIN_ARM64_SHA256@"
+      url "https://github.com/cumulus13/go-wifimon/releases/download/v#{version}/wifimon_#{version}_darwin_arm64.tar.gz"
+      sha256 "0000000000000000000000000000000000000000000000000000000000000000"
     else
-      url "https://github.com/cumulus13/go-wifimon/releases/download/v#{version}/wifimon_#{version}_darwin_amd64.zip"
-      sha256 "@DARWIN_AMD64_SHA256@"
+      url "https://github.com/cumulus13/go-wifimon/releases/download/v#{version}/wifimon_#{version}_darwin_amd64.tar.gz"
+      sha256 "0000000000000000000000000000000000000000000000000000000000000000"
     end
-  elsif OS.linux?
+  end
+
+  on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/cumulus13/go-wifimon/releases/download/v#{version}/wifimon_#{version}_linux_arm64.zip"
-      sha256 "@LINUX_ARM64_SHA256@"
+      url "https://github.com/cumulus13/go-wifimon/releases/download/v#{version}/wifimon_#{version}_linux_arm64.tar.gz"
+      sha256 "0000000000000000000000000000000000000000000000000000000000000000"
     else
-      url "https://github.com/cumulus13/go-wifimon/releases/download/v#{version}/wifimon_#{version}_linux_amd64.zip"
-      sha256 "@LINUX_AMD64_SHA256@"
+      url "https://github.com/cumulus13/go-wifimon/releases/download/v#{version}/wifimon_#{version}_linux_amd64.tar.gz"
+      sha256 "0000000000000000000000000000000000000000000000000000000000000000"
     end
   end
 
   def install
     bin.install "wifimon"
-    pkgshare.install "assets"
+    (pkgshare/"assets").install Dir["assets/*"]
   end
 
   test do
-    assert_match "Usage:", shell_output("#{bin}/wifimon --help")
+    system "#{bin}/wifimon", "--version"
   end
 end
