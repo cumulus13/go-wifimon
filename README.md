@@ -31,6 +31,21 @@ It is built for Windows first, keeps the UI in English, and is structured so Lin
 go install github.com/cumulus13/go-wifimon/cmd/wifimon@latest
 ```
 
+### macOS / Linux
+
+```bash
+brew tap cumulus13/tap
+brew install wifimon
+```
+
+### Windows
+
+```bash
+scoop bucket add cumulus13 https://github.com/cumulus13/scoop-bucket
+scoop install wifimon
+```
+
+
 ### From source
 
 ```bash
