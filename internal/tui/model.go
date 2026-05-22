@@ -4,6 +4,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/cumulus13/go-wifimon/internal/config"
 	"github.com/cumulus13/go-wifimon/internal/wifi"
 )
 
@@ -28,6 +29,7 @@ type Model struct {
 	LastNotified map[string]wifi.Adapter
 	Histories    map[string]*adapterHistory
 	Status       string
+	Styles       Styles
 }
 
 type TickMsg struct{}
@@ -41,11 +43,21 @@ type PingMsg struct {
 	Result wifi.PingResult
 }
 
+// NewModel loads the theme from the first config file found (or uses
+// built-in defaults) and returns an initialised Model.
 func NewModel() Model {
+	return NewModelWithConfig("")
+}
+
+// NewModelWithConfig creates a Model using an explicit config file path.
+// Pass "" to use the default search order.
+func NewModelWithConfig(configPath string) Model {
+	theme := config.Load(configPath)
 	return Model{
 		LastNotified: map[string]wifi.Adapter{},
 		Histories:    map[string]*adapterHistory{},
 		Status:       "Loading Wi-Fi status...",
+		Styles:       NewStyles(theme),
 	}
 }
 

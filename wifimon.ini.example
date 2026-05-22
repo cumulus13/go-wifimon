@@ -1,0 +1,61 @@
+# wifimon.ini — colour theme configuration
+# Copy to wifimon.ini next to the binary, or to ~/.config/wifimon/wifimon.ini
+#
+# Colour values: xterm-256 palette index (0-255)  OR  hex (#rrggbb / #rgb)
+# Omit any key to keep the built-in default.
+# Lines starting with # or ; are comments.
+
+[theme]
+
+# ── chrome ──────────────────────────────────────────────────────────────────
+title          = 39    # "📶 WiFiMon" heading            bright cyan-blue
+subtitle       = 241   # tagline / separator text        mid-grey
+label          = 244   # row label text ("Signal:", …)   light grey
+value          = 252   # plain row value text            near-white
+card_border    = 62    # rounded card border             slate-blue
+footer         = 241   # shortcuts bar                   mid-grey
+status         = 241   # status line below title         mid-grey
+
+# ── adapter tabs ─────────────────────────────────────────────────────────────
+tab_active_fg  = 230   # active tab foreground           bright yellow-white
+tab_active_bg  = 31    # active tab background           medium blue
+tab_fg         = 252   # inactive tab foreground
+tab_bg         = 238   # inactive tab background         dark grey
+
+# ── state badges ─────────────────────────────────────────────────────────────
+ok             = 42    # connected / great               green
+warn           = 214   # warning / fair                  orange
+err            = 196   # disconnected / bad              red
+
+# ── signal quality gradient (applied to bars AND text) ───────────────────────
+# Thresholds: great ≥85%  good ≥65%  fair ≥45%  poor ≥20%  none <20%
+signal_great   = 42
+signal_good    = 83
+signal_fair    = 214
+signal_poor    = 208
+signal_none    = 196
+
+# ── latency quality gradient ─────────────────────────────────────────────────
+# Thresholds: great ≤20ms  good ≤60ms  fair ≤120ms  bad >120ms / unreachable
+latency_great  = 42
+latency_good   = 83
+latency_fair   = 214
+latency_bad    = 196
+
+# ── packet-loss quality gradient ─────────────────────────────────────────────
+# Thresholds: great =0%  fair ≤5%  bad >5%
+loss_great     = 42
+loss_fair      = 214
+loss_bad       = 196
+
+# ── example alternative: softer blue-grey palette ────────────────────────────
+# Uncomment these to try a cooler look:
+; title         = 75
+; label         = 109
+; value         = 188
+; card_border   = 68
+; signal_great  = 78
+; signal_good   = 115
+; signal_fair   = 179
+; signal_poor   = 173
+; signal_none   = 167

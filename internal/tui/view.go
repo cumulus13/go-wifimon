@@ -10,127 +10,121 @@ import (
 	"github.com/cumulus13/go-wifimon/internal/wifi"
 )
 
-var (
-	appStyle = lipgloss.NewStyle().
-			Padding(1, 2)
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("39"))
-	okStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("42")).
-		Bold(true)
-	warnStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			Bold(true)
-	errStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
-			Bold(true)
-	dimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
-	cardStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62")).
-			Padding(0, 1)
+// ── layout constants ────────────────────────────────────────────────────────
+
+const (
+	labelColWidth = 13 // "Packet Loss:" padded to this
+	labelPrefix   = labelColWidth + 2 // label + ": " + space = 15 chars
+	cardChrome    = 4                 // border(1 each side) + padding(1 each side)
 )
 
+// ── main View ───────────────────────────────────────────────────────────────
+
 func (m Model) View() string {
+	s := m.Styles
 	width := m.Width
 	if width == 0 {
 		width = 100
 	}
 
-	header := titleStyle.Render("📶 WiFiMon") + "  " + dimStyle.Render("live Wi-Fi monitor for Windows and beyond")
-	status := dimStyle.Render(m.Status)
+	header := s.Title.Render("📶 WiFiMon") +
+		"  " + s.Subtitle.Render("live Wi-Fi monitor for Windows and beyond")
+	status := s.Status.Render(m.Status)
 
+	// ── no adapter ──────────────────────────────────────────────────────────
 	if len(m.Info.Adapters) == 0 {
-		body := cardStyle.Width(width - 8).Render(strings.Join([]string{
-			statusLine("Adapter", "❌ none"),
-			statusLine("State", "No Wi-Fi hardware detected"),
-			statusLine("Hint", "Press r to refresh, q to quit"),
-			statusLine("Updated", timeString(m.Info.Timestamp)),
+		body := s.Card.Width(width - 8).Render(strings.Join([]string{
+			row(s, "Adapter", s.Err.Render("❌ none")),
+			row(s, "State",   s.Warn.Render("No Wi-Fi hardware detected")),
+			row(s, "Hint",    s.Value.Render("Press r to refresh, q to quit")),
+			row(s, "Updated", s.Value.Render(timeString(m.Info.Timestamp))),
 		}, "\n"))
-		return appStyle.Width(width).Render(header + "\n\n" + body)
+		return s.App.Width(width).Render(header + "\n\n" + body)
 	}
 
-	selected, _ := m.currentAdapter()
-	key := adapterKey(selected, m.Selected)
-	history := m.historyFor(key)
-
-	adapterTabs := renderTabs(m.Info.Adapters, m.Selected, width-8)
-
-	// Each card is roughly (contentWidth/2)-2 wide (or width-8 in narrow mode).
-	// Inner usable width = cardWidth - 2 (border) - 2 (padding).
-	// statusLine label prefix is 15 chars ("Signal Graph: "), leaving the rest for the graph.
-	const labelPrefix = 15 // "Signal Graph: " width
-	const cardChrome = 4   // border (2) + padding (2) each side
+	// ── layout geometry ─────────────────────────────────────────────────────
 	contentWidth := width - 4
 	if contentWidth < 40 {
 		contentWidth = width
 	}
-	cardInnerWidth := maxInt(28, (contentWidth/2)-2) - cardChrome
-	if width < 92 {
-		cardInnerWidth = maxInt(24, width-8) - cardChrome
+	narrow := width < 92
+
+	cardWidth := maxInt(28, (contentWidth/2)-2)
+	if narrow {
+		cardWidth = maxInt(24, width-8)
 	}
-	graphWidth := cardInnerWidth - labelPrefix
+	graphWidth := cardWidth - cardChrome - labelPrefix
 	if graphWidth < 4 {
 		graphWidth = 4
 	}
 
-	signalGraph := sparkline(history.Signal, "▁▂▃▄▅▆▇█", graphWidth)
+	// ── selected adapter data ───────────────────────────────────────────────
+	selected, _ := m.currentAdapter()
+	key := adapterKey(selected, m.Selected)
+	history := m.historyFor(key)
+
+	adapterTabs := renderTabs(m, width-8)
+
+	// ── graphs ──────────────────────────────────────────────────────────────
+	signalGraph  := sparkline(history.Signal,  "▁▂▃▄▅▆▇█", graphWidth)
 	latencyGraph := sparkline(history.Latency, "▁▂▃▄▅▆▇█", graphWidth)
-	lossGraph := sparklineFloat(history.Loss, "▁▂▃▄▅▆▇█", graphWidth)
+	lossGraph    := sparklineFloat(history.Loss, "▁▂▃▄▅▆▇█", graphWidth)
+
+	// Colour each graph bar individually.
+	signalGraph  = colorSignalGraph(history.Signal,  signalGraph,  s, graphWidth)
+	latencyGraph = colorLatencyGraph(history.Latency, latencyGraph, s, graphWidth, history.Last.Reachable)
+	lossGraph    = colorLossGraph(history.Loss, lossGraph, s, graphWidth)
+
+	// ── left card ───────────────────────────────────────────────────────────
+	adapterVal := fmt.Sprintf("%s (%d/%d)",
+		selected.Name, m.Selected+1, len(m.Info.Adapters))
 
 	mainCard := strings.Join([]string{
-		statusLine("Adapter", fmt.Sprintf("%s (%d/%d)", selected.Name, m.Selected+1, len(m.Info.Adapters))),
-		statusLine("SSID", selected.DisplaySSID()),
-		statusLine("State", stateBadge(selected.DisplayState())),
-		statusLine("Signal", fmt.Sprintf("%s %s", selected.SignalBars(), valueOrDash(selected.SignalText))),
-		statusLine("Band", valueOrDash(selected.DisplayBand())),
-		statusLine("Radio", valueOrDash(selected.RadioType)),
-		statusLine("Channel", valueOrDash(selected.Channel)),
-		statusLine("Speed", valueOrDash(selected.ReceiveRateMbps)+"↓ / "+valueOrDash(selected.TransmitRateMbps)+"↑ Mbps"),
-		statusLine("IP / Gateway", joinCompact(selected.IPv4, selected.Gateway)),
-		statusLine("Auth", joinCompact(selected.Authentication, selected.Cipher)),
-		statusLine("Signal Graph", signalGraph),
+		row(s, "Adapter",      s.Value.Render(adapterVal)),
+		row(s, "SSID",         s.Value.Render(selected.DisplaySSID())),
+		row(s, "State",        stateBadge(s, selected.DisplayState())),
+		row(s, "Signal",       signalValue(s, selected)),
+		row(s, "Band",         s.Value.Render(valueOrDash(selected.DisplayBand()))),
+		row(s, "Radio",        s.Value.Render(valueOrDash(selected.RadioType))),
+		row(s, "Channel",      s.Value.Render(valueOrDash(selected.Channel))),
+		row(s, "Speed",        speedValue(s, selected)),
+		row(s, "IP / Gateway", ipGatewayValue(s, selected)),
+		row(s, "Auth",         s.Value.Render(joinCompact(selected.Authentication, selected.Cipher))),
+		row(s, "Signal Graph", signalGraph),
 	}, "\n")
 
-	latencyText := "offline"
-	lossText := "-"
-	if history.Last.CheckedAt.After(time.Time{}) {
-		if history.Last.Reachable {
-			latencyText = fmt.Sprintf("%d ms", history.Last.LatencyMS)
-		} else if history.Last.Error != "" {
-			latencyText = history.Last.Error
-		}
-		lossText = history.Last.LossPercentText()
-	}
+	// ── right card ──────────────────────────────────────────────────────────
+	latencyText, lossText := pingValues(s, history)
 
 	networkCard := strings.Join([]string{
-		statusLine("Gateway", valueOrDash(selected.Gateway)),
-		statusLine("Latency", latencyText),
-		statusLine("Packet Loss", lossText),
-		statusLine("Latency Graph", latencyGraph),
-		statusLine("Loss Graph", lossGraph),
-		statusLine("IPv6", valueOrDash(selected.IPv6)),
-		statusLine("Profile", valueOrDash(selected.Profile)),
-		statusLine("BSSID", valueOrDash(selected.BSSID)),
-		statusLine("Updated", timeString(m.Info.Timestamp)),
+		row(s, "Gateway",      s.Value.Render(valueOrDash(selected.Gateway))),
+		row(s, "Latency",      latencyText),
+		row(s, "Packet Loss",  lossText),
+		row(s, "Latency Graph",latencyGraph),
+		row(s, "Loss Graph",   lossGraph),
+		row(s, "IPv6",         s.Value.Render(valueOrDash(selected.IPv6))),
+		row(s, "Profile",      s.Value.Render(valueOrDash(selected.Profile))),
+		row(s, "BSSID",        s.Value.Render(valueOrDash(selected.BSSID))),
+		row(s, "Updated",      s.Value.Render(timeString(m.Info.Timestamp))),
 	}, "\n")
 
-	footer := dimStyle.Render("Shortcuts: q quit • r refresh • ←/→ switch adapter")
+	footer := s.Footer.Render("Shortcuts: q quit • r refresh • ←/→ switch adapter")
 
-	content := lipgloss.JoinHorizontal(lipgloss.Top,
-		cardStyle.Width(maxInt(28, (contentWidth/2)-2)).Render(mainCard),
-		cardStyle.Width(maxInt(28, (contentWidth/2)-2)).Render(networkCard),
-	)
-	if width < 92 {
+	// ── assemble ─────────────────────────────────────────────────────────────
+	var content string
+	if narrow {
 		content = lipgloss.JoinVertical(lipgloss.Left,
-			cardStyle.Width(maxInt(24, width-8)).Render(mainCard),
-			cardStyle.Width(maxInt(24, width-8)).Render(networkCard),
+			s.Card.Width(cardWidth).Render(mainCard),
+			s.Card.Width(cardWidth).Render(networkCard),
+		)
+	} else {
+		content = lipgloss.JoinHorizontal(lipgloss.Top,
+			s.Card.Width(cardWidth).Render(mainCard),
+			s.Card.Width(cardWidth).Render(networkCard),
 		)
 	}
 
-	return appStyle.Width(width).Render(strings.Join([]string{
+	return s.App.Width(width).Render(strings.Join([]string{
 		header,
 		status,
 		adapterTabs,
@@ -139,15 +133,90 @@ func (m Model) View() string {
 	}, "\n\n"))
 }
 
-func renderTabs(adapters []wifi.Adapter, selected int, width int) string {
-	tabs := make([]string, 0, len(adapters))
-	for idx, adapter := range adapters {
+// ── row builder ─────────────────────────────────────────────────────────────
+
+// row formats a label+value line.
+// The label is always coloured with s.Label; the caller is responsible for
+// colouring the value string before passing it in.
+func row(s Styles, label, value string) string {
+	l := s.Label.Render(fmt.Sprintf("%-*s", labelColWidth, label+":"))
+	return l + " " + value
+}
+
+// ── value renderers ─────────────────────────────────────────────────────────
+
+func stateBadge(s Styles, state string) string {
+	switch state {
+	case "connected":
+		return s.Ok.Render("🟢 connected")
+	case "disconnected":
+		return s.Err.Render("🔴 disconnected")
+	default:
+		return s.Warn.Render("🟡 " + state)
+	}
+}
+
+func signalValue(s Styles, a wifi.Adapter) string {
+	st := s.SignalStyle(a.SignalPercent)
+	bars := st.Render(a.SignalBars())
+	txt  := st.Render(valueOrDash(a.SignalText))
+	return bars + " " + txt
+}
+
+func speedValue(s Styles, a wifi.Adapter) string {
+	rx := valueOrDash(a.ReceiveRateMbps)
+	tx := valueOrDash(a.TransmitRateMbps)
+	return s.Value.Render(rx+"↓") + s.Subtitle.Render(" / ") + s.Value.Render(tx+"↑ Mbps")
+}
+
+func ipGatewayValue(s Styles, a wifi.Adapter) string {
+	if a.IPv4 != "" && a.Gateway != "" {
+		return s.Value.Render(a.IPv4) +
+			s.Subtitle.Render("  →  ") +
+			s.Value.Render(a.Gateway)
+	}
+	return s.Value.Render(joinCompact(a.IPv4, a.Gateway))
+}
+
+func pingValues(s Styles, history *adapterHistory) (latencyText, lossText string) {
+	if !history.Last.CheckedAt.After(time.Time{}) {
+		return s.Subtitle.Render("offline"), s.Subtitle.Render("-")
+	}
+
+	lst := s.LatencyStyle(history.Last.LatencyMS, history.Last.Reachable)
+	if history.Last.Reachable {
+		latencyText = lst.Render(fmt.Sprintf("%d ms", history.Last.LatencyMS))
+	} else {
+		msg := history.Last.Error
+		if msg == "" {
+			msg = "unreachable"
+		}
+		latencyText = lst.Render(msg)
+	}
+
+	lossText = s.LossStyle(history.Last.PacketLoss).
+		Render(history.Last.LossPercentText())
+
+	return latencyText, lossText
+}
+
+// ── tabs ─────────────────────────────────────────────────────────────────────
+
+func renderTabs(m Model, width int) string {
+	s := m.Styles
+	tabs := make([]string, 0, len(m.Info.Adapters))
+	for idx, adapter := range m.Info.Adapters {
 		label := fmt.Sprintf(" %s %s ", stateEmoji(adapter.DisplayState()), trimLabel(adapter.Name, 20))
-		style := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")).
-			Background(lipgloss.Color("238"))
-		if idx == selected {
-			style = style.Foreground(lipgloss.Color("230")).Background(lipgloss.Color("31")).Bold(true)
+		var style lipgloss.Style
+		if idx == m.Selected {
+			style = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(s.Theme.TabActiveFG)).
+				Background(lipgloss.Color(s.Theme.TabActiveBG)).
+				Bold(true)
+		} else {
+			style = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(s.Theme.TabFG)).
+				Background(lipgloss.Color(s.Theme.TabBG))
 		}
 		tabs = append(tabs, style.Render(label))
 	}
@@ -155,53 +224,27 @@ func renderTabs(adapters []wifi.Adapter, selected int, width int) string {
 	return lipgloss.NewStyle().MaxWidth(width).Render(row)
 }
 
-func statusLine(label, value string) string {
-	return fmt.Sprintf("%-13s %s", label+":", value)
-}
-
-func stateBadge(state string) string {
-	switch state {
-	case "connected":
-		return okStyle.Render("🟢 connected")
-	case "disconnected":
-		return errStyle.Render("🔴 disconnected")
-	default:
-		return warnStyle.Render("🟡 " + state)
-	}
-}
-
-func stateEmoji(state string) string {
-	switch state {
-	case "connected":
-		return "🟢"
-	case "disconnected":
-		return "🔴"
-	default:
-		return "🟡"
-	}
-}
+// ── sparkline helpers ────────────────────────────────────────────────────────
 
 // sparkline renders a bar graph using block characters.
 // maxWidth caps the number of bars shown (keeping the most recent samples).
-// Pass maxWidth <= 0 to show all samples.
 func sparkline(values []int, charset string, maxWidth int) string {
 	if len(values) == 0 {
-		return dimStyle.Render("no data")
+		return "no data"
 	}
-	// Trim to the most-recent maxWidth samples so the graph always fits.
 	if maxWidth > 0 && len(values) > maxWidth {
 		values = values[len(values)-maxWidth:]
 	}
 	maxVal := 1
-	for _, value := range values {
-		if value > maxVal {
-			maxVal = value
+	for _, v := range values {
+		if v > maxVal {
+			maxVal = v
 		}
 	}
 	runes := []rune(charset)
 	var b strings.Builder
-	for _, value := range values {
-		scaled := int(math.Round(float64(value) / float64(maxVal) * float64(len(runes)-1)))
+	for _, v := range values {
+		scaled := int(math.Round(float64(v) / float64(maxVal) * float64(len(runes)-1)))
 		if scaled < 0 {
 			scaled = 0
 		}
@@ -215,13 +258,85 @@ func sparkline(values []int, charset string, maxWidth int) string {
 
 func sparklineFloat(values []float64, charset string, maxWidth int) string {
 	if len(values) == 0 {
-		return dimStyle.Render("no data")
+		return "no data"
 	}
 	ints := make([]int, 0, len(values))
-	for _, value := range values {
-		ints = append(ints, int(math.Round(value)))
+	for _, v := range values {
+		ints = append(ints, int(math.Round(v)))
 	}
 	return sparkline(ints, charset, maxWidth)
+}
+
+// colorSignalGraph recolours each bar rune individually by its signal value.
+func colorSignalGraph(values []int, raw string, s Styles, maxWidth int) string {
+	if raw == "no data" {
+		return s.Subtitle.Render(raw)
+	}
+	if maxWidth > 0 && len(values) > maxWidth {
+		values = values[len(values)-maxWidth:]
+	}
+	runes := []rune(raw)
+	if len(runes) != len(values) {
+		return raw // safety: lengths mismatch, return uncoloured
+	}
+	var b strings.Builder
+	for i, r := range runes {
+		b.WriteString(s.SignalStyle(values[i]).Render(string(r)))
+	}
+	return b.String()
+}
+
+// colorLatencyGraph recolours each bar by its latency value.
+func colorLatencyGraph(values []int, raw string, s Styles, maxWidth int, reachable bool) string {
+	if raw == "no data" {
+		return s.Subtitle.Render(raw)
+	}
+	if maxWidth > 0 && len(values) > maxWidth {
+		values = values[len(values)-maxWidth:]
+	}
+	runes := []rune(raw)
+	if len(runes) != len(values) {
+		return raw
+	}
+	var b strings.Builder
+	for i, r := range runes {
+		// A latency of 0 means not-yet-measured, treat as unreachable.
+		reach := reachable && values[i] > 0
+		b.WriteString(s.LatencyStyle(values[i], reach).Render(string(r)))
+	}
+	return b.String()
+}
+
+// colorLossGraph recolours each bar by its loss value.
+func colorLossGraph(values []float64, raw string, s Styles, maxWidth int) string {
+	if raw == "no data" {
+		return s.Subtitle.Render(raw)
+	}
+	if maxWidth > 0 && len(values) > maxWidth {
+		values = values[len(values)-maxWidth:]
+	}
+	runes := []rune(raw)
+	if len(runes) != len(values) {
+		return raw
+	}
+	var b strings.Builder
+	for i, r := range runes {
+		b.WriteString(s.LossStyle(values[i]).Render(string(r)))
+	}
+	return b.String()
+}
+
+// ── misc helpers ─────────────────────────────────────────────────────────────
+
+func stateEmoji(state string) string {
+	switch state {
+	case "connected":
+		return "🟢"
+	case "disconnected":
+		return "🔴"
+	default:
+		return "🟡"
+	}
 }
 
 func valueOrDash(value string) string {
