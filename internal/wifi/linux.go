@@ -18,6 +18,10 @@ var (
 	rxLinuxRxRate  = regexp.MustCompile(`rx bitrate:\s*([\d.]+)\s*MBit/s`)
 	rxLinuxBSSID   = regexp.MustCompile(`Connected to\s+([0-9a-fA-F:]{17})`)
 	rxLinuxSSIDiw  = regexp.MustCompile(`SSID:\s*(.+)`)
+	// FIX: parse transmitted/received counts for accurate loss calculation
+	rxLinuxSent     = regexp.MustCompile(`(\d+)\s+packets transmitted`)
+	rxLinuxReceived = regexp.MustCompile(`(\d+)\s+(?:packets )?received`)
+	rxLinuxLatency  = regexp.MustCompile(`time=([0-9.]+)\s*ms`)
 )
 
 func getLinux() Info {
@@ -350,7 +354,9 @@ func pingGatewayLinux(gateway string) PingResult {
 		}
 	}
 
-	out, err := exec.Command("ping", "-c", "1", "-W", "1", gateway).CombinedOutput()
+	// FIX: send 4 packets instead of 1 so loss can be 0/25/50/75/100%.
+	// -W 1 = 1-second deadline per packet.
+	out, err := exec.Command("ping", "-c", "4", "-W", "1", gateway).CombinedOutput()
 	if err != nil && len(out) == 0 {
 		return PingResult{
 			Error:     err.Error(),
@@ -361,23 +367,56 @@ func pingGatewayLinux(gateway string) PingResult {
 	text := normalizeNewlines(string(out))
 	result := PingResult{
 		CheckedAt: now,
-		Sent:      1,
 	}
-	if strings.Contains(text, "1 received") || strings.Contains(text, "1 packets received") {
+
+	// Parse Sent / Received counts for accurate loss.
+	sent := 0
+	received := 0
+	if m := rxLinuxSent.FindStringSubmatch(text); len(m) == 2 {
+		sent, _ = strconv.Atoi(m[1])
+	}
+	// FIX: anchor the match with a word boundary to avoid "10 received"
+	// matching as "0 received" or similar off-by-one issues.
+	if m := rxLinuxReceived.FindStringSubmatch(text); len(m) == 2 {
+		received, _ = strconv.Atoi(m[1])
+	}
+	result.Sent = sent
+	result.Received = received
+
+	if received > 0 {
 		result.Reachable = true
-		result.Received = 1
-		result.PacketLoss = 0
 	}
-	if idx := strings.Index(text, "time="); idx >= 0 {
-		chunk := text[idx+5:]
-		if end := strings.Index(chunk, " ms"); end >= 0 {
-			if latency, err := strconv.ParseFloat(strings.TrimSpace(chunk[:end]), 64); err == nil {
-				result.LatencyMS = int(latency + 0.5)
+
+	// Parse the best (minimum) round-trip latency from the summary line,
+	// e.g. "rtt min/avg/max/mdev = 12.345/13.000/14.000/0.500 ms"
+	// Fall back to the first reply line if the summary is absent.
+	if idx := strings.Index(text, "rtt min/avg/max"); idx >= 0 {
+		// extract the avg field: min/avg/max/mdev
+		chunk := text[idx:]
+		if eqIdx := strings.Index(chunk, "="); eqIdx >= 0 {
+			nums := strings.TrimSpace(chunk[eqIdx+1:])
+			parts := strings.SplitN(nums, "/", 4)
+			if len(parts) >= 2 {
+				if avg, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64); err == nil {
+					result.LatencyMS = int(avg + 0.5)
+				}
 			}
 		}
+	} else if m := rxLinuxLatency.FindStringSubmatch(text); len(m) == 2 {
+		if latency, err := strconv.ParseFloat(m[1], 64); err == nil {
+			result.LatencyMS = int(latency + 0.5)
+		}
 	}
-	if !result.Reachable {
+
+	// Compute loss from raw counts.
+	if sent > 0 {
+		lost := sent - received
+		result.PacketLoss = float64(lost) / float64(sent) * 100.0
+	} else if !result.Reachable {
 		result.PacketLoss = 100
+	}
+
+	if !result.Reachable && result.Error == "" {
 		result.Error = "request timed out"
 	}
 	return result

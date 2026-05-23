@@ -17,6 +17,9 @@ var (
 	rxDarwinIPv6    = regexp.MustCompile(`inet6\s+([0-9a-fA-F:]+%?\S*)`)
 	rxDarwinLatency = regexp.MustCompile(`time=([0-9.]+)\s*ms`)
 	rxDarwinLoss    = regexp.MustCompile(`(\d+)\.?\d*%\s+packet loss`)
+	// FIX: parse transmitted/received for accurate loss
+	rxDarwinSent     = regexp.MustCompile(`(\d+)\s+packets transmitted`)
+	rxDarwinReceived = regexp.MustCompile(`(\d+)\s+packets received`)
 )
 
 func getDarwin() Info {
@@ -136,28 +139,65 @@ func pingGatewayDarwin(gateway string) PingResult {
 		return PingResult{Error: "no gateway", CheckedAt: now}
 	}
 
-	out, err := exec.Command("ping", "-c", "1", "-W", "1000", gateway).CombinedOutput()
+	// FIX: send 4 packets instead of 1 so loss can be 0/25/50/75/100%.
+	// -W 1000 = 1000ms timeout per packet.
+	out, err := exec.Command("ping", "-c", "4", "-W", "1000", gateway).CombinedOutput()
 	if err != nil && len(out) == 0 {
 		return PingResult{Error: err.Error(), CheckedAt: now}
 	}
 
 	text := normalizeNewlines(string(out))
-	result := PingResult{CheckedAt: now, Sent: 1}
+	result := PingResult{CheckedAt: now}
 
-	if m := rxDarwinLatency.FindStringSubmatch(text); len(m) == 2 {
+	// Parse Sent / Received counts.
+	sent := 0
+	received := 0
+	if m := rxDarwinSent.FindStringSubmatch(text); len(m) == 2 {
+		sent, _ = strconv.Atoi(m[1])
+	}
+	if m := rxDarwinReceived.FindStringSubmatch(text); len(m) == 2 {
+		received, _ = strconv.Atoi(m[1])
+	}
+	result.Sent = sent
+	result.Received = received
+
+	if received > 0 {
+		result.Reachable = true
+	}
+
+	// Use the average RTT from the summary line for the latency value.
+	// macOS ping summary: "round-trip min/avg/max/stddev = …"
+	if idx := strings.Index(text, "round-trip"); idx >= 0 {
+		chunk := text[idx:]
+		if eqIdx := strings.Index(chunk, "="); eqIdx >= 0 {
+			nums := strings.TrimSpace(chunk[eqIdx+1:])
+			parts := strings.SplitN(nums, "/", 4)
+			if len(parts) >= 2 {
+				if avg, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64); err == nil {
+					result.LatencyMS = int(avg + 0.5)
+				}
+			}
+		}
+	} else if m := rxDarwinLatency.FindStringSubmatch(text); len(m) == 2 {
 		if latency, err := strconv.ParseFloat(m[1], 64); err == nil {
 			result.LatencyMS = int(latency + 0.5)
 			result.Reachable = true
 			result.Received = 1
 		}
 	}
-	if m := rxDarwinLoss.FindStringSubmatch(text); len(m) == 2 {
+
+	// Compute loss from raw packet counts.
+	if sent > 0 {
+		lost := sent - received
+		result.PacketLoss = float64(lost) / float64(sent) * 100.0
+	} else if m := rxDarwinLoss.FindStringSubmatch(text); len(m) == 2 {
 		if loss, err := strconv.ParseFloat(m[1], 64); err == nil {
 			result.PacketLoss = loss
 		}
 	} else if !result.Reachable {
 		result.PacketLoss = 100
 	}
+
 	if !result.Reachable && result.Error == "" {
 		result.Error = "request timed out"
 	}

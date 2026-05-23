@@ -107,13 +107,19 @@ Wireless LAN adapter Wi-Fi 3:
 	}
 }
 
+// ── ping tests updated for 4-packet output ───────────────────────────────────
+
 func TestParseWindowsPing(t *testing.T) {
+	// 4-packet ping, all received → 0% loss
 	raw := `
 Pinging 192.168.10.1 with 32 bytes of data:
 Reply from 192.168.10.1: bytes=32 time=4ms TTL=64
+Reply from 192.168.10.1: bytes=32 time=3ms TTL=64
+Reply from 192.168.10.1: bytes=32 time=5ms TTL=64
+Reply from 192.168.10.1: bytes=32 time=4ms TTL=64
 
 Ping statistics for 192.168.10.1:
-    Packets: Sent = 1, Received = 1, Lost = 0 (0% loss),
+    Packets: Sent = 4, Received = 4, Lost = 0 (0% loss),
 `
 
 	result := parseWindowsPing(normalizeNewlines(raw), time.Now())
@@ -126,15 +132,47 @@ Ping statistics for 192.168.10.1:
 	if result.PacketLoss != 0 {
 		t.Fatalf("expected 0 loss, got %f", result.PacketLoss)
 	}
+	if result.Sent != 4 || result.Received != 4 {
+		t.Fatalf("expected Sent=4 Received=4, got Sent=%d Received=%d", result.Sent, result.Received)
+	}
+}
+
+func TestParseWindowsPingPartialLoss(t *testing.T) {
+	// 4-packet ping, 1 dropped → 25% loss — the key scenario that was broken
+	raw := `
+Pinging 192.168.10.1 with 32 bytes of data:
+Reply from 192.168.10.1: bytes=32 time=4ms TTL=64
+Request timed out.
+Reply from 192.168.10.1: bytes=32 time=5ms TTL=64
+Reply from 192.168.10.1: bytes=32 time=4ms TTL=64
+
+Ping statistics for 192.168.10.1:
+    Packets: Sent = 4, Received = 3, Lost = 1 (25% loss),
+`
+
+	result := parseWindowsPing(normalizeNewlines(raw), time.Now())
+	if !result.Reachable {
+		t.Fatalf("expected reachable (some packets received): %+v", result)
+	}
+	if result.PacketLoss != 25.0 {
+		t.Fatalf("expected 25%% loss, got %f", result.PacketLoss)
+	}
+	if result.Sent != 4 || result.Received != 3 {
+		t.Fatalf("expected Sent=4 Received=3, got Sent=%d Received=%d", result.Sent, result.Received)
+	}
 }
 
 func TestParseWindowsPingTimeout(t *testing.T) {
+	// All 4 packets dropped → 100% loss
 	raw := `
 Pinging 192.168.10.1 with 32 bytes of data:
 Request timed out.
+Request timed out.
+Request timed out.
+Request timed out.
 
 Ping statistics for 192.168.10.1:
-    Packets: Sent = 1, Received = 0, Lost = 1 (100% loss),
+    Packets: Sent = 4, Received = 0, Lost = 4 (100% loss),
 `
 	result := parseWindowsPing(normalizeNewlines(raw), time.Now())
 	if result.Reachable {
@@ -152,9 +190,12 @@ func TestParseWindowsPingSubMs(t *testing.T) {
 	raw := `
 Pinging 192.168.1.1 with 32 bytes of data:
 Reply from 192.168.1.1: bytes=32 time<1ms TTL=64
+Reply from 192.168.1.1: bytes=32 time<1ms TTL=64
+Reply from 192.168.1.1: bytes=32 time<1ms TTL=64
+Reply from 192.168.1.1: bytes=32 time<1ms TTL=64
 
 Ping statistics for 192.168.1.1:
-    Packets: Sent = 1, Received = 1, Lost = 0 (0% loss),
+    Packets: Sent = 4, Received = 4, Lost = 0 (0% loss),
 `
 	result := parseWindowsPing(normalizeNewlines(raw), time.Now())
 	if !result.Reachable {
@@ -162,6 +203,9 @@ Ping statistics for 192.168.1.1:
 	}
 	if result.LatencyMS != 0 {
 		t.Fatalf("expected latency 0, got %d", result.LatencyMS)
+	}
+	if result.PacketLoss != 0 {
+		t.Fatalf("expected 0%% loss, got %f", result.PacketLoss)
 	}
 }
 

@@ -178,11 +178,18 @@ func ipGatewayValue(s Styles, a wifi.Adapter) string {
 	return s.Value.Render(joinCompact(a.IPv4, a.Gateway))
 }
 
+// pingValues renders the Latency and Packet Loss label values.
+//
+// FIX: Packet Loss now shows a rolling average over history.Loss instead of
+// the raw last-ping value. Because each ping sends 4 packets the per-tick
+// value is already more granular (0 / 25 / 50 / 75 / 100 %), and the rolling
+// average smooths out momentary blips to give a meaningful long-term figure.
 func pingValues(s Styles, history *adapterHistory) (latencyText, lossText string) {
 	if !history.Last.CheckedAt.After(time.Time{}) {
 		return s.Subtitle.Render("offline"), s.Subtitle.Render("-")
 	}
 
+	// ── latency ─────────────────────────────────────────────────────────────
 	lst := s.LatencyStyle(history.Last.LatencyMS, history.Last.Reachable)
 	if history.Last.Reachable {
 		latencyText = lst.Render(fmt.Sprintf("%d ms", history.Last.LatencyMS))
@@ -194,10 +201,45 @@ func pingValues(s Styles, history *adapterHistory) (latencyText, lossText string
 		latencyText = lst.Render(msg)
 	}
 
-	lossText = s.LossStyle(history.Last.PacketLoss).
-		Render(history.Last.LossPercentText())
+	// ── packet loss (rolling average) ───────────────────────────────────────
+	// Use up to the last 10 ticks so the display responds within ~20 s while
+	// still smoothing over transient single-packet drops.
+	rollingLoss := rollingAverage(history.Loss, 10)
+	lossText = s.LossStyle(rollingLoss).
+		Render(formatLossPercent(rollingLoss))
 
 	return latencyText, lossText
+}
+
+// rollingAverage returns the mean of the last n values in the slice.
+// If the slice is shorter than n, all values are used.
+func rollingAverage(values []float64, n int) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	start := len(values) - n
+	if start < 0 {
+		start = 0
+	}
+	window := values[start:]
+	sum := 0.0
+	for _, v := range window {
+		sum += v
+	}
+	return sum / float64(len(window))
+}
+
+// formatLossPercent renders a loss percentage with one decimal place when the
+// value is not a whole number, matching the existing formatFloat helper.
+func formatLossPercent(loss float64) string {
+	if loss == 0 {
+		return "0%"
+	}
+	rounded := math.Round(loss*10) / 10
+	if rounded == math.Round(rounded) {
+		return fmt.Sprintf("%.0f%%", rounded)
+	}
+	return fmt.Sprintf("%.1f%%", rounded)
 }
 
 // ── tabs ─────────────────────────────────────────────────────────────────────

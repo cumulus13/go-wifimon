@@ -16,6 +16,9 @@ var (
 	rxSuffix        = regexp.MustCompile(`Connection-specific DNS Suffix[\s.]*:\s*(.*)`)
 	rxLatency       = regexp.MustCompile(`time[=<]\s*(\d+)ms`)
 	rxLoss          = regexp.MustCompile(`Lost = \d+ \((\d+)% loss\)`)
+	// FIX: capture Sent and Received counts for accurate loss calculation
+	rxSent     = regexp.MustCompile(`Sent = (\d+)`)
+	rxReceived = regexp.MustCompile(`Received = (\d+)`)
 )
 
 func getWindows() Info {
@@ -92,7 +95,11 @@ func pingGatewayWindows(gateway string) PingResult {
 		}
 	}
 
-	out, err := exec.Command("ping", "-n", "1", "-w", "1200", gateway).CombinedOutput()
+	// FIX: send 4 packets instead of 1 so packet-loss can be 0/25/50/75/100%
+	// rather than the previous binary 0% or 100%.
+	// Timeout 1200ms per packet; total wall time ≤ ~5s which fits the 2s tick
+	// only when all packets drop. Typical connected case returns in ~1s.
+	out, err := exec.Command("ping", "-n", "4", "-w", "1200", gateway).CombinedOutput()
 	if err != nil && len(out) == 0 {
 		return PingResult{
 			Error:     err.Error(),
@@ -229,30 +236,51 @@ func parseWindowsIPConfig(text string) map[string]ipBlock {
 }
 
 func parseWindowsPing(text string, now time.Time) PingResult {
+	// FIX: parse Sent/Received counts for accurate loss, not just the % string.
+	// Windows rounds the % to nearest integer which loses precision at low counts,
+	// so we compute it ourselves from the raw packet counts.
 	result := PingResult{
 		CheckedAt: now,
-		Sent:      1,
 	}
-	if match := rxLatency.FindStringSubmatch(text); len(match) == 2 {
-		if latency, err := strconv.Atoi(match[1]); err == nil {
+
+	sent := 0
+	received := 0
+	if m := rxSent.FindStringSubmatch(text); len(m) == 2 {
+		sent, _ = strconv.Atoi(m[1])
+	}
+	if m := rxReceived.FindStringSubmatch(text); len(m) == 2 {
+		received, _ = strconv.Atoi(m[1])
+	}
+	result.Sent = sent
+	result.Received = received
+
+	// Determine reachability and latency from the reply lines.
+	// "time<1ms" means sub-millisecond — treat as 0 ms but still reachable.
+	if strings.Contains(text, "time<1ms") {
+		result.LatencyMS = 0
+		result.Reachable = true
+	} else if m := rxLatency.FindStringSubmatch(text); len(m) == 2 {
+		if latency, err := strconv.Atoi(m[1]); err == nil {
 			result.LatencyMS = latency
 			result.Reachable = true
 		}
 	}
-	if strings.Contains(text, "time<1ms") {
-		result.LatencyMS = 0
-		result.Reachable = true
-	}
-	if result.Reachable {
-		result.Received = 1
-	}
-	if match := rxLoss.FindStringSubmatch(text); len(match) == 2 {
-		if loss, err := strconv.Atoi(match[1]); err == nil {
-			result.PacketLoss = float64(loss)
+
+	// Compute loss from counts rather than trusting the rounded % string.
+	if sent > 0 {
+		lost := sent - received
+		result.PacketLoss = float64(lost) / float64(sent) * 100.0
+	} else {
+		// Fallback: parse the loss % string if counts weren't found.
+		if m := rxLoss.FindStringSubmatch(text); len(m) == 2 {
+			if loss, err := strconv.Atoi(m[1]); err == nil {
+				result.PacketLoss = float64(loss)
+			}
+		} else if !result.Reachable {
+			result.PacketLoss = 100
 		}
-	} else if !result.Reachable {
-		result.PacketLoss = 100
 	}
+
 	if !result.Reachable && result.Error == "" {
 		result.Error = "request timed out"
 	}
