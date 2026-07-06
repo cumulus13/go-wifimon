@@ -52,6 +52,13 @@ type PingResult struct {
 	CheckedAt  time.Time
 }
 
+// normalizeNewlines replaces \r\n and lone \r with \n.
+// Shared by linux.go and darwin.go which parse CLI output.
+func normalizeNewlines(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	return strings.ReplaceAll(value, "\r", "\n")
+}
+
 func Get() Info {
 	switch runtime.GOOS {
 	case "windows":
